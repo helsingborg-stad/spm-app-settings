@@ -1,49 +1,85 @@
-    import XCTest
-    @testable import AppSettings
+import XCTest
+import Combine
+@testable import AppSettings
 
-    final class AppSettingsTests: XCTestCase {
-        struct TestConfig : Codable, AppSettingsConfig {
-            let valueString:String
-            let valueInt:Int
-            let valueBool:Bool
-        }
-        func testExample() {
-            // This is an example of a functional test case.
-            // Use XCTAssert and related functions to verify your tests produce the correct
-            // results.
+let valueString = "string"
+let valueInt = 1
+let valueBool = false
+var cancellables = Set<AnyCancellable>()
 
-            var dict = [String:Any]()
-            dict["valueString"] = "string"
-            dict["valueInt"] = 1
-            dict["valueBool"] = true
-            
-            UserDefaults.standard.setValue(dict, forKey: "test")
-            if let d2 = UserDefaults.standard.dictionary(forKey: "test") {
-                do {
-                    let data = try JSONSerialization.data(withJSONObject: d2)
-                    let decoder = JSONDecoder()
-                    
-                    let config = try decoder.decode(TestConfig.self, from: data)
-                    XCTAssert(config.valueString == (dict["valueString"] as? String))
-                    XCTAssert(config.valueInt == (dict["valueInt"] as? Int))
-                    XCTAssert(config.valueBool == (dict["valueBool"] as? Bool))
-                }
-                catch {
-                    XCTFail(error.localizedDescription)
-                }
-            } else {
-                XCTFail("no value")
-            }
-            
-            XCTAssertNotNil(UserDefaults.standard.dictionary(forKey: "test"))
+final class AppSettingsTests: XCTestCase {
+    struct TestConfig : Codable, AppSettingsConfig {
+        let valueString:String
+        let valueInt:Int
+        let valueBool:Bool
+        var keyValueRepresentation: [String : String] {
+            return keyValueReflection
         }
     }
-    extension Dictionary {
+    typealias TestSettings = AppSettings<TestConfig>
+    func testDecodeDictionary() {
+        var dict = [String:Any]()
+        dict["valueString"] = "string"
+        dict["valueInt"] = 1
+        dict["valueBool"] = true
         
-        /// Convert Dictionary to JSON string
-        /// - Throws: exception if dictionary cannot be converted to JSON data or when data cannot be converted to UTF8 string
-        /// - Returns: JSON string
-        func toJson() throws -> Data {
-            return try JSONSerialization.data(withJSONObject: self)
+        UserDefaults.standard.setValue(dict, forKey: "test")
+        if let d2 = UserDefaults.standard.dictionary(forKey: "test") {
+            do {
+                let config = try TestConfig.decoded(from: d2)
+                XCTAssert(config.valueString == (dict["valueString"] as? String))
+                XCTAssert(config.valueInt == (dict["valueInt"] as? Int))
+                XCTAssert(config.valueBool == (dict["valueBool"] as? Bool))
+            }
+            catch {
+                XCTFail(error.localizedDescription)
+            }
+        } else {
+            XCTFail("no value")
         }
+        
+        XCTAssertNotNil(UserDefaults.standard.dictionary(forKey: "test"))
     }
+    func testSettings() {
+        let expectation = XCTestExpectation(description: "testSettings")
+        let encoder = PropertyListEncoder()
+        
+        let config = TestConfig(valueString: valueString, valueInt: valueInt, valueBool: valueBool)
+        do {
+            let data = try encoder.encode(config)
+            let dir = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor:nil, create:false)
+            let file = dir.appendingPathComponent("testfile.plist")
+            try data.write(to: file)
+            let settings = TestSettings(defaultsFromFile: file, managedConfigEnabled: false, mixWithDefault: false)
+            settings.$config.sink { config in
+                guard let config = config else {
+                    debugPrint("no config")
+                    return
+                }
+                XCTAssert(config.valueString == valueString)
+                XCTAssert(config.valueInt == valueInt)
+                XCTAssert(config.valueBool == valueBool)
+                expectation.fulfill()
+            }.store(in: &cancellables)
+        } catch {
+            XCTFail(error.localizedDescription)
+        }
+        
+        wait(for: [expectation], timeout: 10)
+    }
+    func testMask() {
+        let testString = "abcdefghij"
+        XCTAssert(String.mask(testString, leave: testString.count + 5)  == testString)
+        XCTAssert(String.mask(testString, leave: testString.count)      == testString)
+        XCTAssert(String.mask(testString, leave: 3)                     == "*******hij")
+        XCTAssert(String.mask(testString, leave: 0)                     == "**********")
+        XCTAssert(String.mask(nil,        leave: 3)                     == nil)
+        XCTAssert(String.mask("",         leave: 3)                     == "")
+        
+        XCTAssert(String.mask(testString, percentage: 0)                == testString)
+        XCTAssert(String.mask(testString, percentage: 50)               == "*****fghij")
+        XCTAssert(String.mask(testString, percentage: 100)              == "**********")
+        XCTAssert(String.mask(nil,        percentage: 50)               == nil)
+        XCTAssert(String.mask("",         percentage: 50)               == "")
+    }
+}

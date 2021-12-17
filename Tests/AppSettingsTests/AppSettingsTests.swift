@@ -9,9 +9,9 @@ var cancellables = Set<AnyCancellable>()
 
 final class AppSettingsTests: XCTestCase {
     struct TestConfig : Codable, AppSettingsConfig {
-        let valueString:String
-        let valueInt:Int
-        let valueBool:Bool
+        let valueString:String?
+        let valueInt:Int?
+        let valueBool:Bool?
         var keyValueRepresentation: [String : String] {
             return keyValueReflection
         }
@@ -65,6 +65,35 @@ final class AppSettingsTests: XCTestCase {
             XCTFail(error.localizedDescription)
         }
         
+        wait(for: [expectation], timeout: 10)
+    }
+    func testManagedSettings() {
+        let expectation = XCTestExpectation(description: "testSettings")
+        let encoder = PropertyListEncoder()
+        
+        let config = TestConfig(valueString: valueString, valueInt: valueInt, valueBool: valueBool)
+        do {
+            
+            let data = try encoder.encode(config)
+            let dir = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor:nil, create:false)
+            let file = dir.appendingPathComponent("testfile.plist")
+            try data.write(to: file)
+            let settings = TestSettings(defaultsFromFile: file, managedConfigEnabled: true, mixWithDefault: true)
+            settings.$config.sink { config in
+                guard let config = config else {
+                    debugPrint("no config")
+                    return
+                }
+                debugPrint(config)
+                XCTAssert(config.valueString == valueString)
+                XCTAssert(config.valueInt == valueInt)
+                XCTAssert(config.valueBool == valueBool)
+                expectation.fulfill()
+            }.store(in: &cancellables)
+        } catch {
+            XCTFail(error.localizedDescription)
+        }
+        UserDefaults.standard.set(["valueInt":3], forKey: "com.apple.configuration.managed")
         wait(for: [expectation], timeout: 10)
     }
     func testMask() {

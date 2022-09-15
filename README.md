@@ -1,5 +1,8 @@
 # AppSettings
+## DEPRECATED
+Package will not recieve any updates, please use the AppSettings library in https://github.com/helsingborg-stad/spm-daisy instead.
 
+## About
 Package to mange app-config or plist-formatted config files. 
 
 ## Usage
